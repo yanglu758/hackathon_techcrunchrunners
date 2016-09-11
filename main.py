@@ -18,17 +18,8 @@ import endpoints
 from protorpc import message_types
 from protorpc import messages
 from protorpc import remote
-from google.appengine.ext import ndb
 from google.appengine.api import urlfetch
 from google.appengine.api import memcache
-
-
-class User(ndb.Model):
-    """Sub model for representing an author."""
-    userid = ndb.StringProperty(indexed=True)
-    name = ndb.StringProperty(indexed=False)
-    email = ndb.StringProperty(indexed=False)
-    access_token = ndb.StringProperty(indexed=False)
 
 
 class Greeting(messages.Message):
@@ -69,7 +60,7 @@ class Api(remote.Service):
         http_method='GET',
         name='greetings.list')
     def list_greetings(self, unused_request):
-        return Greeting(message='Welcome to Techcrunch runners API!')
+        return Greeting(message='Welcome to Techcrunch runners API! FUCK!')
 
     # ResourceContainers are used to encapsuate a request body and url
     # parameters. This one is used to represent the Greeting ID for the
@@ -81,7 +72,6 @@ class Api(remote.Service):
         id=messages.IntegerField(1, variant=messages.Variant.INT32))
 
     CALLBACK_RESOURCE = endpoints.ResourceContainer(
-        message_types.VoidMessage,
         code=messages.StringField(1, variant=messages.Variant.STRING, required=True)
     )
 
@@ -112,12 +102,6 @@ class Api(remote.Service):
             payload=str(data),
             method=urlfetch.POST,
             headers=headers)
-        user = User(
-            access_token=result.access_token,
-            name=result.user.username,
-            userid=result.user.userid,
-            email=result.user.email
-        )
         return Message(message='success!')
 
 api = endpoints.api_server([Api])
