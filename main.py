@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 import endpoints
+import logging
+import urllib
+import ast
 from protorpc import message_types
 from protorpc import messages
 from protorpc import remote
@@ -27,7 +30,6 @@ class User(ndb.Model):
     """Sub model for representing an author."""
     userid = ndb.StringProperty(indexed=True)
     name = ndb.StringProperty(indexed=False)
-    email = ndb.StringProperty(indexed=False)
     access_token = ndb.StringProperty(indexed=False)
 
 
@@ -81,7 +83,6 @@ class Api(remote.Service):
         id=messages.IntegerField(1, variant=messages.Variant.INT32))
 
     CALLBACK_RESOURCE = endpoints.ResourceContainer(
-        message_types.VoidMessage,
         code=messages.StringField(1, variant=messages.Variant.STRING, required=True)
     )
 
@@ -89,9 +90,9 @@ class Api(remote.Service):
         CALLBACK_RESOURCE,
         Message,
         path='callback',
-        http_method='POST')
+        http_method='GET')
     def callback(self, request):
-        # memcache.add(key='code', value=request.code, time=3600)
+        memcache.set(key='code', value=request.code, time=3600)
         return Message(message=request.code)
 
     @endpoints.method(
@@ -100,24 +101,38 @@ class Api(remote.Service):
         path='auth/access_token',
         http_method='GET')
     def access(self, request):
+        code = memcache.get(key='code')
         data = {
-            "client_id": 'cf0a3f5a8d404bb8a15122c37cce5f74',
-            'redirect_uri': 'https://techcrunchrunners.appspot.com/_ah/api/api/v1/api',
-            'response_type': 'code',
-            'code':  memcache.get(key='code')
+            'client_id': 'cf0a3f5a8d404bb8a15122c37cce5f74',
+            'redirect_uri': 'https://techcrunchrunners.appspot.com/_ah/api/api/v1/callback',
+            'grant_type': 'authorization_code',
+            'client_secret': '05540abb85c54147bb61d8def0f9b7c5',
+            'code': code
         }
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        result = urlfetch.fetch(
+        response = urlfetch.fetch(
             url='https://api.instagram.com/oauth/access_token',
-            payload=str(data),
+            payload=urllib.urlencode(data),
             method=urlfetch.POST,
             headers=headers)
-        user = User(
-            access_token=result.access_token,
-            name=result.user.username,
-            userid=result.user.userid,
-            email=result.user.email
-        )
-        return Message(message='success!')
+        logging.info(code)
+        logging.info(response.content)
+        logging.info(response.status_code)
+
+        if response.status_code == 200:
+            content = ast.literal_eval(response.content)
+
+            user = User(
+                access_token=content['access_token'],
+                name=content['user']['full_name'],
+                userid=content['user']['id']
+            )
+            user.put()
+            return Message(message='registration success!')
+        elif response.status_code == 400:
+            return Message(message=str(response.content))
+        else:
+            return Message(message=str(response.status_code))
+
 
 api = endpoints.api_server([Api])
