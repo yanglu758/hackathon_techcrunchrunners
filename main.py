@@ -18,9 +18,25 @@ import endpoints
 from protorpc import message_types
 from protorpc import messages
 from protorpc import remote
+from google.appengine.ext import ndb
+from google.appengine.api import urlfetch
+from google.appengine.api import memcache
+
+
+class User(ndb.Model):
+    """Sub model for representing an author."""
+    userid = ndb.StringProperty(indexed=True)
+    name = ndb.StringProperty(indexed=False)
+    email = ndb.StringProperty(indexed=False)
+    access_token = ndb.StringProperty(indexed=False)
 
 
 class Greeting(messages.Message):
+    """Greeting that stores a message."""
+    message = messages.StringField(1)
+
+
+class Message(messages.Message):
     """Greeting that stores a message."""
     message = messages.StringField(1)
 
@@ -42,7 +58,7 @@ class Location(messages.Message):
 
 
 @endpoints.api(name='api', version='v1')
-class GreetingApi(remote.Service):
+class Api(remote.Service):
 
     @endpoints.method(
         # This method does not take a request message.
@@ -64,37 +80,44 @@ class GreetingApi(remote.Service):
         # Accept one url parameter: and integer named 'id'
         id=messages.IntegerField(1, variant=messages.Variant.INT32))
 
+    CALLBACK_RESOURCE = endpoints.ResourceContainer(
+        message_types.VoidMessage,
+        code=messages.StringField(1, variant=messages.Variant.STRING, required=True)
+    )
+
     @endpoints.method(
-        # Use the ResourceContainer defined above to accept an empty body
-        # but an ID in the query string.
-        GET_RESOURCE,
-        # This method returns a Greeting message.
-        Greeting,
-        # The path defines the source of the URL parameter 'id'. If not
-        # specified here, it would need to be in the query string.
-        path='greetings/{id}',
-        http_method='GET',
-        name='greetings.get')
-    def get_greeting(self, request):
-        try:
-            # request.id is used to access the URL parameter.
-            return STORED_GREETINGS.items[request.id]
-        except (IndexError, TypeError):
-            raise endpoints.NotFoundException(
-                'Greeting {} not found'.format(request.id))
-
-
-@endpoints.api(name="locations", version='v1')
-class LocationAPI(remote.Service):
+        CALLBACK_RESOURCE,
+        Message,
+        path='callback',
+        http_method='POST')
+    def callback(self, request):
+        # memcache.add(key='code', value=request.code, time=3600)
+        return Message(message=request.code)
 
     @endpoints.method(
         message_types.VoidMessage,
-        Location,
-        path='locations',
-        http_method='GET',
-        name='locations.get')
-    def get_location(self, request):
-        return Location(x=1.1, y=2.2)
+        Message,
+        path='auth/access_token',
+        http_method='GET')
+    def access(self, request):
+        data = {
+            "client_id": 'cf0a3f5a8d404bb8a15122c37cce5f74',
+            'redirect_uri': 'https://techcrunchrunners.appspot.com/_ah/api/api/v1/api',
+            'response_type': 'code',
+            'code':  memcache.get(key='code')
+        }
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        result = urlfetch.fetch(
+            url='https://api.instagram.com/oauth/access_token',
+            payload=str(data),
+            method=urlfetch.POST,
+            headers=headers)
+        user = User(
+            access_token=result.access_token,
+            name=result.user.username,
+            userid=result.user.userid,
+            email=result.user.email
+        )
+        return Message(message='success!')
 
-
-api = endpoints.api_server([GreetingApi, LocationAPI])
+api = endpoints.api_server([Api])
